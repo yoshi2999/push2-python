@@ -53,8 +53,7 @@ pip install ./push2-python-master
 
 ## Documentation
 
-Well, to be honest there is no proper documentation. However the use of this package is so simple that I hope it's going to be enough with the [code examples below](#code-examples) and the simple notes given here.
-
+the easiest way to get started is to look at the list of all functions or take the [code examples below as a template](#code-examples) and the simple notes given here.
 ### Initializing Push
  
 To interface with Push2 you'll first need to import `push2_python` and initialize a Python object as follows:
@@ -64,6 +63,37 @@ import push2_python
 
 push = push2_python.Push2() 
 ```
+
+### displaying a static image on push2
+```python
+import push2_python
+import random
+import time
+import os
+# Init Push2
+push = push2_python.Push2(use_user_midi_port=False)
+@push2_python.on_encoder_rotated(push2_python.constants.ENCODER_TEMPO_ENCODER)
+def on_left_encoder_rotated(push):
+    print("test")
+
+@push2_python.on_button_pressed(push2_python.constants.BUTTON_PLAY)
+def on_play_pressed(push):
+    os.system("cmd.exe")
+
+push.display.save_frame("960x160.png", "960x160.frame")
+my_image = push.display.get_frame("960x160.frame")
+while True:  # This is your app's main loop
+    # Try to configure Push2 MIDI at every iteration (if not already configured)
+    if not push.midi_is_configured():
+        push.configure_midi()
+        if not push.midi_is_configured():
+            time.sleep(5)
+            continue
+        push.set_color_palette_entry(0, ['purple', 'white'], rgb=[127, 0, 255], bw=255)  # lights up all buttons
+    push.display.send_to_display(my_image)  # sends the frame again before the 2 second timeout
+    time.sleep(1.5)
+```
+
 
 **NOTE**: all code snippets below assume you import `push2_python` and initialize the `Push2` like in the snippet above.
 
