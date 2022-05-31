@@ -41,6 +41,16 @@ pip install git+https://github.com/ffont/push2-python
 
 This will install Python requirements as well. Note however that `push2-python` requires [pyusb](https://github.com/pyusb/pyusb) which is based in [libusb](https://libusb.info/). You'll most probably need to manually install `libusb` for your operative system if `pip` does not do it for you.
 
+if anyone on Windows ever wants to display a static frame on push2, you'll need to paste "libusb-1.0.dll" in a folder contained in the PATH variable, such as "C:/Windows" or "C:/Windows/System32"
+you can find this dll in "C:\ProgramData\Ableton\<your version>\Program\libusb-1.0.dll"
+
+NOTE: as specified in ableton documentation, a frame will only last 2 seconds then drop off to a black screen, so you'll need to send the same one before 2 seconds each time
+#### if you don't have git
+download and unzip the repository then run this code on a command line interpreter (assuming push2-python-master is the folder name containing setup.py)
+```
+pip install ./push2-python-master
+```
+
 ## Documentation
 
 Well, to be honest there is no proper documentation. However the use of this package is so simple that I hope it's going to be enough with the [code examples below](#code-examples) and the simple notes given here.

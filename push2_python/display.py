@@ -3,6 +3,8 @@ import usb.util
 import numpy
 import logging
 import time
+import os
+from PIL import Image
 from .classes import AbstractPush2Section, function_call_interval_limit
 from .exceptions import Push2USBDeviceConfigurationError, Push2USBDeviceNotFound
 from .constants import ABLETON_VENDOR_ID, PUSH2_PRODUCT_ID, USB_TRANSFER_TIMEOUT, DISPLAY_FRAME_HEADER, \
@@ -41,6 +43,7 @@ def rgb_to_bgr565(rgb_frame):
     combined = frame_r_shifted + frame_g_shifted + frame_b_shifted  # Combine all channels
     return combined.transpose()
 
+
 class Push2Display(AbstractPush2Section):
     """Class to interface with Ableton's Push2 display.
     See https://github.com/Ableton/push-interface/blob/master/doc/AbletonPush2MIDIDisplayInterface.asc#display-interface
@@ -49,14 +52,13 @@ class Push2Display(AbstractPush2Section):
     last_prepared_frame = None
     function_call_interval_limit_overwrite = PUSH2_RECONNECT_INTERVAL
 
-
     @function_call_interval_limit(PUSH2_RECONNECT_INTERVAL)
     def configure_usb_device(self):
         """Connect to Push2 USB device and get the Endpoint object used to send data
         to Push2's display.
 
-        This function is decorated with 'function_call_interval_limit' which means that it is only going to be executed if 
-        PUSH2_RECONNECT_INTERVAL seconds have passed since the last time the function was called. This is to avoid potential 
+        This function is decorated with 'function_call_interval_limit' which means that it is only going to be executed if
+        PUSH2_RECONNECT_INTERVAL seconds have passed since the last time the function was called. This is to avoid potential
         problems trying to configure display many times per second.
 
         See https://github.com/Ableton/push-interface/blob/master/doc/AbletonPush2MIDIDisplayInterface.asc#31-usb-display-interface-access
@@ -69,6 +71,8 @@ class Push2Display(AbstractPush2Section):
             logging.error('No backend is available for pyusb. Please make sure \'libusb\' is installed in your system.')
 
         if usb_device is None:
+            # if Push2.midi_is_configured():  # I don't know how to implement this :/
+            print("either you've not connected your push2, or it looks like py_usb can't find the libusb module, are you sure you've installed it ?")
             raise Push2USBDeviceNotFound
 
         device_configuration = usb_device.get_active_configuration()
@@ -93,12 +97,11 @@ class Push2Display(AbstractPush2Section):
         except usb.core.USBError:
             self.usb_endpoint = None
             return
-        
+
         # ...if it works (no USBError exception) set self.usb_endpoint and trigger action
         self.usb_endpoint = out_endpoint
-        self.push.trigger_action(ACTION_DISPLAY_CONNECTED)            
-        
-            
+        self.push.trigger_action(ACTION_DISPLAY_CONNECTED)
+
     def prepare_frame(self, frame, input_format=FRAME_FORMAT_BGR565):
         """Prepare the given image frame to be shown in the Push2's display.
         Depending on the input_format argument, "frame" must be a numpy array with the following characteristics:
@@ -114,7 +117,7 @@ class Push2Display(AbstractPush2Section):
 
         Preferred format is brg565 as it requires no conversion before sending to Push2. Using brg565 is also very fast
         as color conversion is required but numpy handles it pretty well. You should be able to get frame rates higher than
-        30 fps, depending on the speed of your computer. However, using the rgb format (FRAME_FORMAT_RGB) will result in very 
+        30 fps, depending on the speed of your computer. However, using the rgb format (FRAME_FORMAT_RGB) will result in very
         long frame preparation times that can take seconds. This can be highgly optimized so it is as fast as the other formats
         but currently the library does not handle this format as nively. All numpy array elements are expected to be big endian.
         In addition to format conversion (if needed), "prepare_frame" prepares the frame to be sent to push by adding
@@ -153,10 +156,8 @@ class Push2Display(AbstractPush2Section):
         self.last_prepared_frame = prepared_frame
         return prepared_frame.byteswap().tobytes()
 
-
     def make_black_frame(self):
         return numpy.zeros((DISPLAY_LINE_PIXELS, DISPLAY_N_LINES), dtype=numpy.uint16)
-
 
     def send_to_display(self, prepared_frame):
         """Sends a prepared frame to Push2 display.
@@ -169,16 +170,22 @@ class Push2Display(AbstractPush2Section):
         if self.usb_endpoint is None:
             try:
                 self.configure_usb_device()
-            except (Push2USBDeviceNotFound, Push2USBDeviceConfigurationError) as e:
+            except Push2USBDeviceConfigurationError:
+                print("Push2USBDeviceConfigurationError")
+            except Push2USBDeviceNotFound as e:
+                print("Push2USBDeviceNotFound")
                 log_error = False
                 if self.push.simulator_controller is not None:
                     if not hasattr(self, 'display_init_error_shown'):
+                        print("hasattr(self, 'display_init_error_shown'):")
                         log_error = True
                         self.display_init_error_shown = True
                 else:
                     log_error = True
+                    print("not in simulator")
                 if log_error:
-                    logging.error('Could not initialize Push 2 Display: {0}'.format(e))         
+                    print(e)
+                    logging.error('Could not initialize Push 2 Display: {0}'.format(e))
 
         if self.usb_endpoint is not None:
             try:
@@ -189,22 +196,36 @@ class Push2Display(AbstractPush2Section):
 
                 # NOTE: code below was commented because the frames were apparently being
                 # sent twice!! (nice bug...). There seems to be no need to send frame in chunks...
-                #for i in range(0, len(prepared_frame), DISPLAY_BUFFER_SIZE):
+                # for i in range(0, len(prepared_frame), DISPLAY_BUFFER_SIZE):
                 #    buffer_data = prepared_frame[i: i + DISPLAY_BUFFER_SIZE]
                 #    self.usb_endpoint.write(buffer_data, USB_TRANSFER_TIMEOUT)
-            
+
             except usb.core.USBError:
                 # USB connection error, disable connection, will try to reconnect next time a frame is sent
                 self.usb_endpoint = None
                 self.push.trigger_action(ACTION_DISPLAY_DISCONNECTED)
-                
 
     def display_frame(self, frame, input_format=FRAME_FORMAT_BGR565):
         prepared_frame = self.prepare_frame(frame.copy(), input_format=input_format)
         self.send_to_display(prepared_frame)
-
         if self.push.simulator_controller is not None:
             self.push.simulator_controller.prepare_and_display_in_simulator(frame.copy(), input_format=input_format)
 
     def display_last_frame(self):
         self.send_to_display(self.last_prepared_frame)
+
+    def save_frame(self, input_image, output_frame, overwrite=False):
+        if (not os.path.exists(output_frame) and overwrite == False) or (os.path.exists(output_frame) and overwrite == True):
+            img = Image.open(input_image)
+            img = img.convert("RGB")
+            frame = numpy.array(img)
+            frame = frame / 255  # Convert rgb values to [0.0, 1.0] floats
+            prepared_frame = self.prepare_frame(frame.copy(), input_format=FRAME_FORMAT_RGB)
+            with open(output_frame, "wb") as binary:
+                binary.write(prepared_frame)
+        else:
+            print("frame not saved as overwrite is set to false")
+
+    def get_frame(self, file_path):
+        with open(file_path, "rb") as binary:
+            return binary.read()
